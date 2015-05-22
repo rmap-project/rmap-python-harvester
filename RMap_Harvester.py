@@ -6,6 +6,7 @@
 __author__ = 'timmo'
 logging_config_file = 'config/logging.conf'
 logging_logger_name = 'rmapLogger'
+CONFIGURATION_FILE = 'config/default.cfg'
 
 # get us some stderr handling, at least
 import time
@@ -43,8 +44,7 @@ import rdflib
 import urllib
 import urlparse
 import requests
-from rmap_utils import print_count, isodatez
-from collections import Counter
+from rmap_utils import isodatez
 import base64
 from existdb import ExistDB
 
@@ -83,16 +83,20 @@ ERROR:__main__:Uncaught exception processing OAI-PMH records from baseURL='http:
 
 
 def main():
+
+	cfg = config.Config(filename=CONFIGURATION_FILE)
+
 	# get applicaton properties
-	app_config = config.Config('application')
+	app_config = cfg['application']
 
 	# get some configuration that we need to handle arguments
-	rmap_config = config.Config('rmap')
-	repo_config = config.Config('repositories')
-	schema_config = config.Config('schemas')
+	rmap_config = cfg['rmap']
+	repo_config = cfg['repositories']
+	schema_config = cfg['schemas']
 
 	# handle some arguments
 	parser = argparse.ArgumentParser()
+	#parser.add_argument()
 	parser.add_argument('-n', '--noharvest', dest='noharvest', default=False, action='store_true')
 	parser.add_argument('-t', '--test', dest='test', default=False, action='store_true')
 	parser.add_argument('-R', '--rmap', dest='rmap', default='production', help='RMap instance from configuration',
@@ -111,18 +115,18 @@ def main():
 	- from an optional argument with a UTCdatetime value, which specifies a lower bound for datestamp-based selective harvesting.
 	- until an optional argument with a UTCdatetime value, which specifies a upper bound for datestamp-based selective harvesting.
 	- resumptionToken
+	"""
 	parser.add_argument('-f', '--from', dest='from', default=None,
 	                    help='YYYY-MM-DD optional UTCdatetime value, lower bound for harvesting')
 	parser.add_argument('-u', '--until', dest='until', default=None,
 	                    help='YYYY-MM-DD optional UTCdatetime value, upper bound for harvesting')
-    """
 	args = parser.parse_args()
 
 
 	if args.keep is True:
 		# todo: Abstract/generalize! This code assumes that eXist DB is the class for these.
-		edb_oai = config_eXistDB(config.Config('persistence')['oai_store'])
-		edb_disco = config_eXistDB(config.Config('persistence')['rmap_disco'])
+		edb_oai = config_eXistDB(cfg('persistence')['oai_store'])
+		edb_disco = config_eXistDB(cfg('persistence')['rmap_disco'])
 		"""
 		# store the OAI record
 		edb_oai = ExistDB(persistence_config['oai_store']['endpoint'])
@@ -296,36 +300,23 @@ def main():
 	# select the harvester configuration
 	repository = args.repo
 	harvester_config = repo_config[repository]
-	oai_pmh_set = set_query_string(repo_config[repository], args.set, args.query)
-	metadata_prefix = harvester_config['preferred_metadata_prefix']
+	oai_pmh={}
+	oai_pmh['set'] = set_query_string(repo_config[repository], args.set, args.query)
+	# todo: this currently overrides the value set/defaulted from the argument parsing
+	oai_pmh['metadataPrefix'] = harvester_config['preferred_metadata_prefix']
+	oai_pmh['from'] = vars(args)['from']
+	oai_pmh['until'] = args.until
+
+	# oai_pmh_set = set_query_string(repo_config[repository], args.set, args.query)
+	# metadata_prefix = harvester_config['preferred_metadata_prefix']
+	# oai_pmh_from = vars(args)['from']
+	# oai_pmh_until = vars(args)['until']
 
 	# metadata_prefixes = conf['metadata_prefixes']
 	# prefix_strings = metadata_prefixes.keys()
 	harvester_endpoint = harvester_config['url']
 	harvester = Harvester(harvester_endpoint)
-	# initialize some stuff for datacite
-	# client_id = harvester.Identify()
 
-	"""
-	# DataCite query support
-	# support for query subsets
-	# PANGAEA:'fq=prefix%3A"10.1594"'; IEEE: q=10.1109*
-	"""
-
-	"""
-	client_info=dict(
-		name=client_id.repositoryName,
-		description=client_id.description,
-		baseURL=client_id.baseURL,
-		earliest=client_id.earliestDatestamp,
-		granularity=client_id.granularity,
-		protocolVersion=client_id.protocolVersion,
-		compression=client_id.compression,
-		oai_identifier=client_id.oai_identifier,
-		deletedRecord=client_id.deletedRecord,
-	)
-	"""
-	#
 
 	# If running in test mode, drop to interactive shell, then continue running
 	if args.test:
@@ -337,7 +328,9 @@ def main():
 
 	# harvest the records
 	try:
-		harvester.Event_ListRecords(metadataPrefix=metadata_prefix, set=oai_pmh_set, callback=record_handler)
+		harvester.Event_ListRecords(callback=record_handler,
+			**{ 'metadataPrefix': oai_pmh['metadataPrefix'], 'set': oai_pmh['set'],
+			  'from': oai_pmh['from'], 'until': oai_pmh['until'] })
 	except (KeyboardInterrupt, SystemExit):
 		sys.exit(1)
 	except Exception, e:
@@ -345,7 +338,7 @@ def main():
 		print e.args, e.message
 		log.error(
 			"Uncaught exception processing OAI-PMH records from baseURL='%s' with metadataPrefix='%s'",
-			harvester.endpoint, metadata_prefix)
+			harvester.endpoint, oai_pmh['metadataPrefix'])
 	finally: pass
 		#print_stats()
 
