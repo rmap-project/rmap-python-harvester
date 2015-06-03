@@ -44,6 +44,7 @@ import rdflib
 import urllib
 import urlparse
 import requests
+import monitor
 from rmap_utils import isodatez
 import base64
 from existdb import ExistDB
@@ -154,15 +155,32 @@ def main():
 	rmap_instance_config = rmap_config.get('rmap_instances').get(args.rmap)
 	rmap_session = get_rmap_session_from_config(rmap_instance_config)
 
+	# setup monitor
+	harvester_monitor = monitor.get_monitor_from_config( cfg['monitor_db'] )
+
 
 	# todo: move out of main()
 	# todo: would require getting congig, including endpoint
-	def rmap_create_disco(disco, session=None,):
+	def rmap_disco(disco, disco_id=None, action=None, session=None):
 		if session is None:
 			session = rmap_session # todo: can't rely on this, if we're not in main()
 		endpoint = rmap_instance_config['endpoint']
-		creation_rel = rmap_config['link_relations.create']
-		r = session.post(endpoint+'/disco/', data=disco)
+		endpoint_disco = endpoint + rmap_config['object_paths']['disco']
+		endpoint_event = endpoint + rmap_config['object_paths']['event']
+		if disco_id is not None:
+			disco_id_enc = urllib.quote(disco_id, '')
+
+		if action is None:
+			log.error("function rmap_disco() called with no action")
+			raise Exception("function rmap_disco() called with no action")
+		if action=='create':
+			key_events_rel = rmap_config['link_relations.create']
+			r = session.post(endpoint_disco, data=disco)
+		elif action=='inactivate':
+			key_events_rel = rmap_config['link_relations.inactivate']
+			r = session.put(endpoint_disco+disco_id_enc, data='')
+			# r = session.patch(endpoint_disco+disco_id_enc, data='')
+
 		result = {
 			'ok': r.ok,
 			'status_code': r.status_code,
@@ -173,9 +191,9 @@ def main():
 		if r.ok:
 			#do some stuff here, based on successful DiSCO creation
 			result.update({
-			'created_uri': r.text,
-			'creation_events': [get_id_from_url(v,urlparse.urlparse(endpoint).path+'/event/')
-			                    for (k,v) in r.links[creation_rel].iteritems() if k=='url' ],
+			'object_uri': r.text,
+			'key_events': [get_id_from_url(v,urlparse.urlparse(endpoint_event).path)
+			                    for (k,v) in r.links[key_events_rel].iteritems() if k=='url' ],
 			'links': r.links,
 			'headers': r.headers,
 			})
@@ -184,11 +202,40 @@ def main():
 	#################
 	# deleted_record
 	#################
-	def deleted_record(record, classes):
+	def deleted_record(record):
 		# todo: get disco id from database, encode it, and delete it from RMAP
 		# (1) mark it deleted in the database
 		# (2) delete (tombstone it in RMap)
 		# (3) record tombstone event id in db
+		"""
+		monitor.monitor(harvester_monitor, record.header.identifier, False,
+		                {'endpoint': harvester_endpoint,},
+		                {'disco_id': r['created_uri'], 'event_id': ', '.join(r['creation_events'])}
+        )
+        """
+		try:
+			active_discos = monitor.get_active_discos(harvester_monitor, record.header.identifier,
+			                                          harvester_endpoint)
+			for disco_id in active_discos:
+				r = rmap_disco(disco=None, disco_id=disco_id, action='invalidate', session=rmap_session)
+				if r['ok']:
+					log.info("%s [%s] Invalidated DiSCO [%s] (%s %s): event(s): [%s]",
+					             isodatez(), record.header.identifier,
+					             r['object_uri'], r['status_code'], r['reason'],
+					             ', '.join(r['key_events']))
+					# (4) record DiSCO creation event in db
+					monitor.monitor(harvester_monitor, record.header.identifier, True,
+					                {'endpoint': harvester_endpoint,},
+					                {'disco_id': r['object_uri'], 'event_id': ', '.join(r['key_events'])}
+			        )
+
+		except Exception, e:
+			traceback.print_exc()
+			log.error('Uncaught exception:"%s"', e.message, exc_info=True)
+			log.error(
+				"Error processing OAI-PMH record id='%s' from baseURL='%s'",
+				record.header.identifier, harvester.endpoint)
+
 		return
 
 	#################
@@ -204,7 +251,7 @@ def main():
 		try:
 			# transform record to RMap DiSCO
 			xml_tree = etree.XML(record.raw)
-			transform = xslt[metadata_prefix]
+			transform = xslt[ oai_pmh['metadataPrefix'] ]
 			try:
 				res = transform(xml_tree, **dict( xslt_params.items() +
 				                                  {'nowZ': etree.XSLT.strparam(isodatez()),
@@ -233,20 +280,24 @@ def main():
 			disco =  turtle
 			# (2) create db entry
 			# (3) create DiSCO in RMap
-			r = rmap_create_disco(disco, rmap_session)
+			r = rmap_disco(disco, action='create', session=rmap_session)
 			if r['ok']:
 				log.info("%s [%s] Created DiSCO [%s] (%s %s): event(s): [%s]",
 				             isodatez(), record.header.identifier,
-				             r['created_uri'], r['status_code'], r['reason'],
-				             ', '.join(r['creation_events']))
+				             r['object_uri'], r['status_code'], r['reason'],
+				             ', '.join(r['key_events']))
+				# (4) record DiSCO creation event in db
+				monitor.monitor(harvester_monitor, record.header.identifier, True,
+				                {'endpoint': harvester_endpoint,},
+				                {'disco_id': r['object_uri'], 'event_id': ', '.join(r['key_events'])}
+		        )
+				# (5) persist the DiSCO serialization
+				if args.keep is True:
+					edb_disco.store(disco, record.header.identifier)
 			else:
 				log.error("%s [%s] Failed to create RMap DiSCO (%s %s): %s",
 				              isodatez(), record.header.identifier,
 				              r['status_code'], r['reason'], r['text'])
-			# (4) record DiSCO creation event in db
-			# persist the DiSCO serialization
-			if args.keep is True:
-				edb_disco.store(disco, record.header.identifier)
 		except Exception, e:
 			traceback.print_exc()
 			log.error('Uncaught exception:"%s"', e.message, exc_info=True)
@@ -275,7 +326,7 @@ def main():
 			       obj.resumption_token if obj.resumption_token is not None else '(none)')
 			"""
 
-			return
+			# return
 
 			if args.keep is True:
 				edb_oai.store(record.raw, record.header.identifier)
@@ -431,3 +482,7 @@ def get_id_from_url(url, prefix):
 if __name__ == '__main__':
 	main()
 
+#######################################################################
+# Epilogue
+#######################################################################
+log.debug("Module '%s' loaded", __name__)

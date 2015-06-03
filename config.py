@@ -22,9 +22,6 @@ _config_file_function_name = 'get_config'
 # Functions
 #######################################################################
 
-def get_config(key=None, config=None, default=None, file=None):
-	pass
-
 # todo: probably should do some exception handling in here to give user more clues
 def _get_config_dict_from_file(path, key=_default_config_variable_name):
 	# todo: should be implemented in a safer way (but restricted execution is deprecated)
@@ -62,6 +59,9 @@ class Config(dict):
 	def __getitem__(self, key):
 		return self.get(key)
 
+#######################################################################
+# main()
+#######################################################################
 if __name__ == "__main__":
 	CONFIG_FILE = 'config/default.cfg'
 
