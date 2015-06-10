@@ -43,11 +43,11 @@
     <xsl:param name="disco_type" select="'http://rmap-project.org/rmap/terms/DiSCO'"/>
     <xsl:param name="temp_disco_id" select="'temp_disco_uri'"/>
 
-    <xsl:include href="Logging.xsl"/>
+    <!-- <xsl:include href="Logging.xsl"/> -->
     <xsl:include href="RMapLookupTable.xsl"/>    
 
     <!-- current time in W3CDTF profile of ISO 8601: http://www.w3.org/TR/NOTE‐datetime -->
-    <xsl:param name="nowZ"><xsl:value-of select="date:date-time()"/></xsl:param>
+    <!-- <xsl:param name="nowZ"><xsl:value-of select="date:date-time()"/></xsl:param> -->
 
     <!-- for upper- to lower-case translation -->
     <xsl:variable name="lowercase" select="'abcdefghijklmnopqrstuvwxyzàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿžšœ'" />
@@ -246,16 +246,31 @@
        
     <xsl:template match="*[local-name() = 'relatedIdentifiers' and starts-with(namespace-uri(), 'http://datacite.org/schema/kernel-' )]">
         <xsl:for-each select="*[local-name() = 'relatedIdentifier' and starts-with(namespace-uri(), 'http://datacite.org/schema/kernel-' )]">
+            <xsl:variable name="identifier">
+                <xsl:call-template name="normalize_id">
+                    <xsl:with-param name="uri" select="./text()" />
+                    <xsl:with-param name="uri_type" select="@relatedIdentifierType" />
+                </xsl:call-template>
+            </xsl:variable>
             <xsl:variable name="entries_x">
                 <xsl:call-template name="lookup">
                     <xsl:with-param name="LookupTable" select="$table"/>
                     <xsl:with-param name="index" select="'RelationTypes'"/>
                     <xsl:with-param name="key" select="string(@relationType)" />
+                    <xsl:with-param name="allow_default">yes</xsl:with-param>
                 </xsl:call-template>
             </xsl:variable>
             <xsl:variable name="entries" select="exsl:node-set($entries_x)"/>
             <xsl:choose>
-                <xsl:when test="count($entries/node()[name='entry']) &gt; 0">
+                <xsl:when test="count($entries/node()[name()='entry']) &gt; 0">
+                    <xsl:for-each select="$entries/node()[name()='entry']">
+                        <xsl:variable name="qname" select="$entries/entry/@qname"></xsl:variable>
+                        <xsl:element name="{$qname}" >
+                            <xsl:attribute name="rdf:resource"><xsl:value-of select="$identifier" /></xsl:attribute>
+                        </xsl:element>
+                    </xsl:for-each>
+                </xsl:when>
+                <xsl:otherwise>
                     <xsl:call-template name="log-warning">
                         <xsl:with-param name="message">CRITICAL: 
                             Lookup error id=<xsl:value-of select="//oai2_record:identifier/text()" /> 
@@ -263,7 +278,7 @@
                             with key: <xsl:value-of select="string(@relationType)"/>
                         </xsl:with-param>
                     </xsl:call-template>
-                </xsl:when>
+                </xsl:otherwise>
             </xsl:choose>
         </xsl:for-each>
     </xsl:template>

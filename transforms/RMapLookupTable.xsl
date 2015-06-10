@@ -15,6 +15,9 @@
     <xsl:key name='IdentifierTypes' match='IdentifierTypes/entry' use='@id' />
     <xsl:key name='DescriptionTypes' match='DescriptionTypes/entry' use='@id' />
     <xsl:key name='ContributorTypes' match='ContributorTypes/entry' use='@id' />
+
+    <!-- included files -->
+    <xsl:include href="Logging.xsl"/>
     
     <!-- ***************************************************************
          Lookup table
@@ -92,11 +95,14 @@
             <entry id='References' qname='cito:citesForInformation' uri='http://purl.org/spar/cito/citesForInformation'/>
             <entry id='IsDocumentedBy' qname='cito:isDocumentedBy' uri='http://purl.org/spar/cito/isDocumentedBy'/>
             <entry id='Documents' qname='cito:documents' uri='http://purl.org/spar/cito/documents'/>
-            <entry id='IsCompiledBy' qname='cito4data:isCompiledBy' uri='http://purl.org/spar/cito4data/isCompiledBy'/>
-            <entry id='Compiles' qname='cito4data:compiles' uri='http://purl.org/spar/cito4data/compiles'/>
+            <entry id='IsCompiledBy' qname='cito:isCompiledBy' uri='http://purl.org/spar/cito4data/isCompiledBy'/>
+            <entry id='Compiles' qname='cito:compiles' uri='http://purl.org/spar/cito4data/compiles'/>
             <entry id='IsVariantFormOf' qname='frbr:alternateOf' uri='http://purl.org/vocab/frbr/core#alternateOf'/>
             <entry id='IsOriginalFormOf' qname='frbr:alternate' uri='http://purl.org/vocab/frbr/core#alternate'/>
-            <entry id='IsIdenticalTo' qname='owl:sameAs' uri='http://www.w3.org/2002/07/owl#sameAs'/>        
+            <entry id='IsIdenticalTo' qname='owl:sameAs' uri='http://www.w3.org/2002/07/owl#sameAs'/>
+            
+            <entry id='IsDerivedFrom' qname='dcterms:source' uri='http://purl.org/dc/terms/source'/>
+            <entry id='default' qname='dcterms:related' uri='http://purl.org/dc/terms/related'/>
         </RelationTypes>
     </lookup:table>
 
@@ -181,14 +187,13 @@
                                 -- no default
                             </xsl:with-param>
                         </xsl:call-template>
-                        
                     </xsl:otherwise>
                 </xsl:choose>
             </xsl:otherwise>
         </xsl:choose>
     </xsl:template>
     
-    <!-- Test lookup table function 
+    <!-- Test lookup table function
     <xsl:template match="/">
         <xsl:variable name="myresult">
             <xsl:call-template name="lookup">
@@ -201,7 +206,7 @@
         <xsl:variable name="myresult2">
             <xsl:call-template name="lookup">
                 <xsl:with-param name="LookupTable" select="$table"/>
-                <xsl:with-param name="index" select="'RelationshipTypes'"/>
+                <xsl:with-param name="index" select="'RelationTypes'"/>
                 <xsl:with-param name="key" select="'Compiles'" />
             </xsl:call-template>
         </xsl:variable>
